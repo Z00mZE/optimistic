@@ -1,7 +1,6 @@
 package optimistic
 
 import (
-	"fmt"
 	"sync"
 	"time"
 )
@@ -25,7 +24,6 @@ func NewCache[Key comparable, Value any](ttl time.Duration, getter ValueGetter[K
 		closer:  make(chan struct{}),
 	}
 
-	go self.expireWatcher()
 	return self
 }
 
@@ -40,12 +38,11 @@ func (c *OnDemandCache[K, V]) Get(key K) (V, bool) {
 		}
 	}
 
-	mtx := sync.NewCond(new(sync.Mutex))
+	tmp, isLoaded := c.locks.LoadOrStore(key, sync.NewCond(new(sync.Mutex)))
 
-	_, isExists := c.locks.LoadOrStore(key, mtx)
-	defer c.locks.Delete(key)
+	mtx := tmp.(*sync.Cond)
 
-	if isExists {
+	if isLoaded {
 		mtx.L.Lock()
 		defer mtx.L.Unlock()
 		mtx.Wait()
@@ -67,32 +64,6 @@ func (c *OnDemandCache[K, V]) Get(key K) (V, bool) {
 	c.storage.Store(key, NewEntity[V](nV, c.ttl))
 	mtx.L.Unlock()
 	mtx.Broadcast()
+	c.locks.Delete(key)
 	return nV, true
-}
-
-func (c *OnDemandCache[Key, Value]) expireWatcher() {
-	timer := time.NewTimer(time.Second)
-	defer timer.Stop()
-
-	for {
-		select {
-		case <-c.closer:
-			return
-		case <-timer.C:
-			ts := time.Now()
-			c.storage.Range(func(k, v any) bool {
-				ent, isOk := v.(Entity[Value])
-				switch {
-				case
-					!isOk,
-					!ent.BestBofore().IsZero() && ts.After(ent.BestBofore()):
-					c.storage.Delete(k)
-				}
-				fmt.Println(ts.After(ent.BestBofore()))
-
-				return true
-			})
-			timer.Reset(time.Second)
-		}
-	}
 }

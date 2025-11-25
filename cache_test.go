@@ -20,17 +20,16 @@ func TestOnDemandCache_Get(t *testing.T) {
 			ttl := 50 * time.Millisecond
 			callsCounter := new(atomic.Int32)
 			getter := func(key int) (string, bool) {
+				time.Sleep(5 * time.Millisecond)
 				callsCounter.Add(1)
-				time.Sleep(100 * time.Millisecond)
 				return strconv.Itoa(key), true
 			}
 			feature := NewCache[int, string](ttl, getter)
 			defer feature.Close()
 
-			const routines = 10
 			const key = 10289
 
-			for i := int32(0); i < routines; i++ {
+			for range 100 {
 				go func() {
 					mtx.L.Lock()
 					mtx.Wait()
@@ -60,7 +59,7 @@ func TestOnDemandCache_Get(t *testing.T) {
 				v, isExists := feature.Get(key)
 				assert.True(t, isExists)
 				assert.Equal(t, "10289", v)
-				assert.Equal(t, int32(2), callsCounter.Load())
+				assert.Equal(t, int32(1), callsCounter.Load())
 			}
 		})
 	})
