@@ -38,14 +38,12 @@ func (c *OnDemandCache[K, V]) Get(key K) (V, bool) {
 		}
 	}
 
-	tmp, isLoaded := c.locks.LoadOrStore(key, sync.NewCond(new(sync.Mutex)))
+	tmp, isLoaded := c.locks.LoadOrStore(key, make(chan struct{}))
 
-	mtx := tmp.(*sync.Cond)
+	barrier := tmp.(chan struct{})
 
 	if isLoaded {
-		mtx.L.Lock()
-		defer mtx.L.Unlock()
-		mtx.Wait()
+		<-barrier
 
 		if v, ok := c.storage.Load(key); ok {
 			if v, isOk := v.(Entity[V]); isOk {
@@ -55,15 +53,15 @@ func (c *OnDemandCache[K, V]) Get(key K) (V, bool) {
 		return *new(V), false
 	}
 
+	defer c.locks.Delete(key)
+	defer close(barrier)
+
 	nV, isOk := c.source(key)
 	if !isOk {
 		return *new(V), false
 	}
 
-	mtx.L.Lock()
 	c.storage.Store(key, NewEntity[V](nV, c.ttl))
-	mtx.L.Unlock()
-	mtx.Broadcast()
-	c.locks.Delete(key)
+
 	return nV, true
 }

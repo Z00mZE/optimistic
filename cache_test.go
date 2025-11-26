@@ -15,7 +15,7 @@ func TestOnDemandCache_Get(t *testing.T) {
 
 	t.Run("ok", func(t *testing.T) {
 		assert.NotPanics(t, func() {
-			mtx := sync.NewCond(&sync.Mutex{})
+			barrier := make(chan struct{})
 
 			ttl := 50 * time.Millisecond
 			callsCounter := new(atomic.Int32)
@@ -29,18 +29,16 @@ func TestOnDemandCache_Get(t *testing.T) {
 
 			const key = 10289
 
-			for range 100 {
-				go func() {
-					mtx.L.Lock()
-					mtx.Wait()
-					mtx.L.Unlock()
+			wg := new(sync.WaitGroup)
+			for range 5000 {
+				wg.Go(func() {
+					<-barrier
 					_, _ = feature.Get(key)
-				}()
+				})
 			}
 
-			mtx.L.Lock()
-			mtx.Broadcast()
-			mtx.L.Unlock()
+			close(barrier)
+			wg.Wait()
 
 			{
 				v, isExists := feature.Get(key)
